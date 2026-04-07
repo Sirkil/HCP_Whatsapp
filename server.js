@@ -57,6 +57,8 @@ app.post("/reply", async (req, res) => {
 
 // Receive messages from WhatsApp
 app.post("/webhook", async (req, res) => {
+  console.log("\n=== INCOMING WEBHOOK TRIGGERED ===");
+  console.log(JSON.stringify(req.body, null, 2));
   res.sendStatus(200); // Acknowledge Meta immediately to prevent retries
 
   const entry = req.body?.entry?.[0];
