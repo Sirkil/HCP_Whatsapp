@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Sender</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; background: #f0f2f5; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 150px; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 5px; margin-bottom: 10px; white-space: pre; overflow-wrap: normal; overflow-x: scroll;}
+        button { width: 100%; padding: 15px; background: #25D366; color: white; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; }
+        #status { margin-top: 20px; font-size: 14px; color: #555; height: 150px; overflow-y: auto; background: #fafafa; padding: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>WhatsApp Bulk UI</h2>
+    <p>Enter CSV data (Name, Phone, Email, Pincode):</p>
+    <textarea id="numbersInput" placeholder="John Doe, 201012345678, john@example.com, 1234&#10;Jane Smith, 201087654321, jane@example.com, 5678"></textarea>
+    <button id="sendBtn">Send Messages & Log</button>
+    <div id="status"></div>
+</div>
+
+<script src="config.js"></script>
+<script src="bulkSend.js"></script>
+
+
+<script>
+    // PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL HERE
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxdjZZTGnZ91OVogszTI1VzhDlnhAn-Wk3mIQvcZXFo5uXItO_Ns4qI8KksZnwtNzM/exec";
+
+    document.getElementById('sendBtn').onclick = async function() {
+    const input = document.getElementById('numbersInput').value;
+    
+    // Split by new line, remove empty lines
+    const rows = input.split('\n').map(row => row.trim()).filter(row => row !== "");
+    const statusDiv = document.getElementById('status');
+    const btn = this;
+
+    if(rows.length === 0) return alert("Please enter CSV data");
+
+    btn.disabled = true;
+    statusDiv.innerHTML = "<b>Starting Process...</b><br>";
+
+    for (let row of rows) {
+        // Parse CSV row: name, phone, email, pincode
+        const columns = row.split(',').map(col => col.trim());
+        
+        // Basic validation to ensure we have all 4 columns
+        if(columns.length < 4) {
+            statusDiv.innerHTML += `<span style="color:orange">Skipping invalid row (missing data): ${row}</span><br>`;
+            continue;
+        }
+
+        const [name, phone, email, pincode] = columns;
+
+        statusDiv.innerHTML += `Sending to ${name} (${phone})... `;
+        
+        // 1. Call your function from bulkSend.js with the new parameters
+        const result = await sendWhatsAppTemplate(phone, name, email, pincode);
+        
+        // 2. Parse the specific message status from the response body
+        let whatsappMessageStatus = "N/A";
+        if (result.success && result.details.messages && result.details.messages[0]) {
+            // This extracts "accepted" from the WhatsApp JSON
+            whatsappMessageStatus = result.details.messages[0].message_status;
+        } else if (!result.success) {
+            whatsappMessageStatus = result.details; // Stores the error message
+        }
+
+        // 3. Update UI
+        if(result.success) {
+            statusDiv.innerHTML += `<span style="color:green">Success (${whatsappMessageStatus})</span><br>`;
+        } else {
+            statusDiv.innerHTML += `<span style="color:red">Error: ${whatsappMessageStatus}</span><br>`;
+        }
+// 4. Send clean data to Google Sheets
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors', 
+                cache: 'no-cache',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: "bulk_log",
+                    name: name,
+                    phone: phone,
+                    email: email,
+                    pin: pincode,
+                    status: result.success ? "Sent" : "Failed",
+                    wa_status: whatsappMessageStatus 
+                })
+            });
+        } catch (e) {
+            console.error("Sheets Logging Failed", e);
+        }
+    }
+
+    statusDiv.innerHTML += "<b>Done! Check your Google Sheet.</b>";
+    btn.disabled = false;
+};
+</script>
+
+</body>
+</html>

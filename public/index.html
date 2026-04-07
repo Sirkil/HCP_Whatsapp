@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Webhook Interface</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f2f5; }
+    .container { display: flex; width: 100%; max-width: 1200px; margin: 0 auto; background: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    .sidebar { width: 30%; border-right: 1px solid #ddd; overflow-y: auto; background: #f6f6f6; }
+    .message-list { list-style: none; padding: 0; margin: 0; }
+    .message-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
+    .message-item:hover { background: #e0e0e0; }
+    .message-item.active { background: #d1e7ff; }
+    .message-item .name { font-weight: bold; color: #111; }
+    .message-item .phone { font-size: 0.8em; color: #555; }
+    
+    .chat-area { width: 70%; display: flex; flex-direction: column; }
+    .chat-header { padding: 15px; background: #075e54; color: white; font-weight: bold; }
+    .chat-messages { flex: 1; padding: 20px; overflow-y: auto; background: #e5ddd5; display: flex; flex-direction: column; }
+    
+    .message { max-width: 60%; margin: 5px 10px; padding: 8px 12px; border-radius: 8px; font-size: 0.95em; line-height: 1.4; position: relative; }
+    .message.received { background: #fff; align-self: flex-start; }
+    .message.sent { background: #dcf8c6; align-self: flex-end; }
+    
+    /* 🕒 New Timestamp Style */
+    .time {
+      font-size: 0.7em;
+      color: #888;
+      margin-top: 4px;
+      text-align: right;
+      display: block;
+    }
+
+    .message-input { display: flex; padding: 15px; background: #f0f0f0; border-top: 1px solid #ddd; }
+    .message-input input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
+    .message-input button { margin-left: 10px; padding: 10px 20px; background: #075e54; color: white; border: none; border-radius: 20px; cursor: pointer; }
+
+    /* 🔒 Lock screen styles (Keep yours) */
+    #lockScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; backdrop-filter: blur(10px); background: rgba(255,255,255,0.3); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+    #lockBox { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.3); text-align: center; width: 300px; }
+    #lockBox input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
+    #lockBox button { width: 100%; padding: 10px; background: #075e54; color: white; border: none; border-radius: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <ul class="message-list" id="messageList"></ul>
+    </div>
+    <div class="chat-area">
+      <div class="chat-header" id="chatHeader">Select a conversation</div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="message-input">
+        <input type="text" id="replyInput" placeholder="Type a message...">
+        <button onclick="sendReply()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="lockScreen">
+    <div id="lockBox">
+      <h2>Enter Password</h2>
+      <input type="password" id="pagePassword" placeholder="Password">
+      <button onclick="unlockPage()">Unlock</button>
+      <p id="error" style="color:red;margin-top:10px;"></p>
+    </div>
+  </div>
+
+  <script>
+    let messagesData = [];
+    let selectedNumber = null;
+
+    async function fetchMessages() {
+      try {
+        const response = await fetch('/messages');
+        const data = await response.json();
+        
+        if (JSON.stringify(data) !== JSON.stringify(messagesData)) {
+          messagesData = data;
+          renderSidebar();
+          if (selectedNumber) {
+            renderChat(selectedNumber);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch messages:", err);
+      }
+    }
+
+    function renderSidebar() {
+      const messageList = document.getElementById('messageList');
+      // Group by number to show unique contacts
+      const uniqueContacts = [...new Map(messagesData.map(m => [m.number, m])).values()];
+      
+      messageList.innerHTML = uniqueContacts.map(m => `
+        <li class="message-item ${selectedNumber === m.number ? 'active' : ''}" 
+            onclick="selectConversation('${m.number}', '${m.name}')">
+          <div class="name">${m.name || 'Unknown'}</div>
+          <div class="phone">${m.number}</div>
+        </li>
+      `).join('');
+    }
+
+    function selectConversation(number, name) {
+      selectedNumber = number;
+      document.getElementById('chatHeader').textContent = `${name} (${number})`;
+      renderChat(number);
+    }
+
+    function renderChat(number) {
+      const chatMessages = document.getElementById('chatMessages');
+      const filtered = messagesData.filter(m => m.number === number);
+      
+      chatMessages.innerHTML = filtered.map(msg => {
+        // Logic to differentiate sent vs received
+        const isSent = msg.replyStatus && msg.replyStatus.toLowerCase().includes('sent');
+        
+        // Use the timestamp sent from the server
+        let timeString = "";
+        if (msg.timestamp) {
+            const dateObj = new Date(msg.timestamp);
+            timeString = dateObj.toLocaleDateString() + " " + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        return `
+          <div class="message ${isSent ? 'sent' : 'received'}">
+            <div class="text">${msg.message}</div>
+            <span class="time">${timeString}</span>
+          </div>
+        `;
+      }).join('');
+      
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function sendReply() {
+      if (!selectedNumber) {
+        alert('Please select a conversation first.');
+        return;
+      }
+      const replyInput = document.getElementById('replyInput');
+      const message = replyInput.value.trim();
+      if (!message) return;
+
+      try {
+        const response = await fetch('/reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: selectedNumber, replyMessage: message })
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+          replyInput.value = '';
+          await fetchMessages(); // Refresh UI immediately
+        } else {
+          alert('Error: ' + result.error);
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    fetchMessages();
+    setInterval(fetchMessages, 4000); // Polling for new messages
+
+    function unlockPage() {
+      const input = document.getElementById("pagePassword").value;
+      if (input === "Sirkil.com2013") {
+        document.getElementById("lockScreen").style.display = "none";
+      } else {
+        document.getElementById("error").textContent = "Wrong password!";
+      }
+    }
+</script>
+</body>
+</html>
